@@ -10,8 +10,8 @@ logDir = '/u/project/sanscn/data/gratitude_mprage/dicom2nifti';
 % Filename of log & status struct to be saved
 logName = 'dcm2niix_BOLD_gratitude';
 
-% Wildcard string to find all the DICOM directories you want to convert (not the dicom files themselves!)
-dicomDirs = dir('/u/project/sanscn/data/gratitude/*/dicom/*/*/*/*/BOLD_*');
+% Wildcard string to find *all* the DICOM directories you want to convert (test this out first; not the dicom files themselves!)
+dicomDirs = dir('/u/project/sanscn/data/gratitude/grat*/dicom/*/*/*/*/BOLD_*');
 
 % Root folder to put converted NIFTIs
 outDir = '/u/project/sanscn/data/gratitude_mprage/gratitude_raw';
@@ -20,7 +20,10 @@ outDir = '/u/project/sanscn/data/gratitude_mprage/gratitude_raw';
 subDir = '/raw';
 
 % Actually call dcm2niix or just look at outputs?
-dryRun = 1;
+dryRun = 0;
+
+% Save DICOM info in run folder?
+saveDinfo = 1;
 
 %%
 
@@ -32,39 +35,41 @@ status = struct;
 for ii = 1:nScans
     
     % Get scan info from DICOM header
-    cd([dicomDirs(ii).folder '/' dicomDirs(ii).name]);
-    [error, hInfo] = system('dicom_hinfo -tag 0010,0010 0018,1030 0020,0011 1', '-echo');
-    hParts = strsplit(hInfo,' ');
-    sub = strtrim(hParts{2});
-    runName = strtrim(hParts{3});
-    seriesNum = strtrim(hParts{4});
+    sDir = [dicomDirs(ii).folder '/' dicomDirs(ii).name];
+    dinfo = dicominfo([sDir '/1']);
+    sub = strrep(strtrim(dinfo.PatientID),' ','_');
+    runName = strrep(strtrim(dinfo.ProtocolName),' ','_');
+    seriesNum = num2str(dinfo.SeriesNumber);
     
     % Organize scan info into log struct
     status(ii).sub = sub;
     status(ii).runName = [runName '_' seriesNum]; % Scan protocol name _ series number
-    status(ii).dicomDir = [dicomDirs(ii).folder '/' dicomDirs(ii).name];
+    status(ii).dicomDir = sDir;
     status(ii).outDir = [outDir '/' sub  subDir '/' status(ii).runName];
     
     % dcm2niix command
-    status(ii).cmd = ['dcm2niix -f %p -v y -t y -o ' status(ii).outDir ' ' status(ii).dicomDir];
+    status(ii).cmd = ['dcm2niix -f ' status(ii).runName ' -v y -o ' status(ii).outDir ' ' sDir];
     status(ii).error = [];
     status(ii).log = [];
+    status(ii).dicomInfo = dinfo;
     
-end
-
-% Parfor loop to execute dcm2niix
-if ~dryRun
-    diary([logDir '/' logName '.txt']);
-    parfor ii = 1:nScans
+    if ~dryRun
         % make output folder
         try
             mkdir(status(ii).outDir);
         catch
         end
-        
+        if saveDinfo
+            save([status(ii).outDir '/dicomInfo_' status(ii).sub '_' status(ii).runName '.mat'], 'dinfo');
+        end
+    end
+end
+
+% Parfor loop to execute dcm2niix
+if ~dryRun
+    parfor ii = 1:nScans
         % Execute command
         [status(ii).error,status(ii).log] = system(status(ii).cmd, '-echo');
     end
-    diary off
     save([logDir '/' logName '.mat'], 'status');
 end
